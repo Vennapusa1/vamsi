@@ -1,0 +1,89 @@
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <SPI.h>
+
+// MQTT Broker and Credentials
+const char* ssid = "PMR";
+const char* password = "Manipmr@25";
+const char* mqttServer = "mqtt.eclipseprojects.io";
+const int mqttPort = 1883;
+const char* mqttUser = "vamsi";
+const char* mqttPassword = "12345";
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+// SPI Configuration
+const int SS_PIN = 5;
+const int MOSI_PIN = 23;
+const int MISO_PIN = 19;
+const int SCK_PIN = 18;
+
+void setup() {
+  Serial.begin(115200);
+
+  // Initialize Wi-Fi
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.println("Connecting to WiFi...");
+  }
+  Serial.println("Connected to WiFi");
+
+  // Initialize MQTT
+  client.setServer(mqttServer, mqttPort);
+  client.setCallback(callback);
+
+  // Initialize SPI
+  SPI.begin(SCK_PIN, MISO_PIN, MOSI_PIN, SS_PIN);
+  pinMode(SS_PIN, OUTPUT);
+  digitalWrite(SS_PIN, HIGH);
+  
+  // Connect to MQTT broker
+  mqttConnect();
+}
+
+void mqttConnect() {
+  while (!client.connected()) {
+    Serial.println("Connecting to MQTT...");
+    if (client.connect("ESP32Client", mqttUser, mqttPassword)) {
+      Serial.println("Connected to MQTT");
+      client.subscribe("esp32/data");  // Subscribe to topic
+    } else {
+      Serial.print("Failed to connect. State: ");
+      Serial.println(client.state());
+      delay(2000);
+    }
+  }
+}
+
+void callback(char* topic, byte* message, unsigned int length) {
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("]: ");
+  
+  // Convert message to string
+  String messageTemp;
+  for (int i = 0; i < length; i++) {
+    messageTemp += (char)message[i];
+  }
+  Serial.println(messageTemp);
+
+  // Send the message over SPI
+  sendSPI(messageTemp);
+}
+
+void sendSPI(String data) {
+  digitalWrite(SS_PIN, LOW);  // Enable SPI communication
+  for (int i = 0; i < data.length(); i++) {
+    SPI.transfer(data[i]);    // Send each byte of the string
+  }
+  digitalWrite(SS_PIN, HIGH);  // Disable SPI communication
+}
+
+void loop() {
+  if (!client.connected()) {
+    mqttConnect();
+  }
+  client.loop();
+}
